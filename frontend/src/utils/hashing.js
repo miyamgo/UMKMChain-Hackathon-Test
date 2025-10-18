@@ -1,13 +1,6 @@
-// frontend/src/utils/hashing.js
+import { ethers } from 'ethers';
 
-import { sha256 } from 'js-sha256';
-
-/**
- * Menghitung Hash Final SHA-256 dari gabungan input teks UMKM.
- */
 export const getFinalHash = (data) => {
-    
-    // Urutan dan normalisasi harus konsisten!
     const combinedString = [
         data.nomorIzin.toLowerCase().trim(),
         data.tglPenerbitan.toLowerCase().trim(),
@@ -15,7 +8,6 @@ export const getFinalHash = (data) => {
         data.jenisPerizinan.toLowerCase().trim()
     ].join('|'); 
 
-    const hash = sha256(combinedString);
-    
-    return '0x' + hash;
+    // Pakai keccak256 (sama seperti Solidity)
+    return ethers.keccak256(ethers.toUtf8Bytes(combinedString));
 };

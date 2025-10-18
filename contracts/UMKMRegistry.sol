@@ -29,7 +29,7 @@ contract UMKMRegistry is ERC721, AccessControl {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
     
-    // ⭐ TAMBAHKAN FUNGSI INI (WAJIB!)
+    // Override supportsInterface untuk fix konflik
     function supportsInterface(bytes4 interfaceId) 
         public 
         view 
@@ -39,8 +39,6 @@ contract UMKMRegistry is ERC721, AccessControl {
         return super.supportsInterface(interfaceId);
     }
     
-    // --- 3. FUNGSI UTAMA: PENDAFTARAN OLEH UMKM ---
-
     function registerAsset(bytes32 _assetHash, string memory _assetType) public {
         require(_assetHash != bytes32(0), "Hash cannot be zero.");
         require(hashToTokenId[_assetHash] == 0, "Asset already registered.");
@@ -60,16 +58,12 @@ contract UMKMRegistry is ERC721, AccessControl {
         _safeMint(msg.sender, currentTokenId);
     }
 
-    // --- 4. FUNGSI REGULATOR: VERIFIKASI SAH ---
-
     function setVerifiedStatus(uint256 _tokenId, string memory _reason) public onlyRole(REGULATOR_ROLE) {
         ownerOf(_tokenId); 
         
         tokenData[_tokenId].isVerified = true;
         tokenData[_tokenId].reason = _reason;
     }
-
-    // --- 5. FUNGSI REGULATOR: PENCABUTAN/KEDALUWARSA ---
 
     function revokeAsset(uint256 _tokenId, string memory _reason) public onlyRole(REGULATOR_ROLE) {
         ownerOf(_tokenId); 
@@ -78,8 +72,6 @@ contract UMKMRegistry is ERC721, AccessControl {
         tokenData[_tokenId].reason = _reason;
     }
     
-    // --- 6. FUNGSI VIEW: VERIFIKASI OLEH PIHAK KETIGA (Free Gas) ---
-
     function getAssetDataByHash(bytes32 _assetHash) public view returns (AssetData memory) {
         uint256 tokenId = hashToTokenId[_assetHash];
         
@@ -90,8 +82,6 @@ contract UMKMRegistry is ERC721, AccessControl {
         return tokenData[tokenId];
     }
     
-    // --- 7. FUNGSI VIEW: TOKEN URI (Metadata NFT) ---
-
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
         require(ownerOf(tokenId) != address(0), "ERC721Metadata: URI query for nonexistent token");
         

@@ -1,19 +1,15 @@
 // frontend/src/contractConfig.js
 
-// Alamat Kontrak UMKMRegistry di Sepolia Testnet
+// --- DATA DARI SEPOLIA TEST NETWORK ---
 export const CONTRACT_ADDRESS = "0x2466bb1c28F1b40100Dd58DF46A437db79E3e74a"; 
-
-// Alamat Wallet Anda yang memegang peran REGULATOR_ROLE
 export const REGULATOR_ADDRESS = "0xB5706507F01C05Bb87Bc7462b2a80816B8691c25"; 
 
-// RPC URL untuk View Functions (Ganti dengan API Key Anda yang sebenarnya)
-export const SEPOLIA_RPC_URL = 'https://eth-sepolia.g.alchemy.com/v2/lp4IXHZUYLSHRkXogpiUr'; 
-
-// Chain ID Sepolia (hex)
-export const SEPOLIA_CHAIN_ID = '0xaa36a7';
-
-// --- APPLICATION BINARY INTERFACE (ABI) ---
-// Salin array ABI lengkap dari artifacts/UMKMRegistry.json di sini!
+// ABI Contract
 export const CONTRACT_ABI = [
-  // ... Paste seluruh array ABI JSON Anda di sini ...
+  "function registerAsset(bytes32 _assetHash, string memory _assetType) public",
+  "function setVerifiedStatus(uint256 _tokenId, string memory _reason) public",
+  "function revokeAsset(uint256 _tokenId, string memory _reason) public",
+  "function getAssetDataByHash(bytes32 _assetHash) public view returns (tuple(address owner, uint256 timestamp, string assetType, bool isVerified, string reason))",
+  "function REGULATOR_ROLE() public view returns (bytes32)",
+  "function hasRole(bytes32 role, address account) public view returns (bool)"
 ];
