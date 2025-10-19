@@ -29,7 +29,6 @@ contract UMKMRegistry is ERC721, AccessControl {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
     
-    // Override supportsInterface untuk fix konflik
     function supportsInterface(bytes4 interfaceId) 
         public 
         view 
@@ -80,6 +79,11 @@ contract UMKMRegistry is ERC721, AccessControl {
         }
         
         return tokenData[tokenId];
+    }
+
+    // Return the tokenId mapped to a given asset hash (0 if not found)
+    function getTokenIdByHash(bytes32 _assetHash) public view returns (uint256) {
+        return hashToTokenId[_assetHash];
     }
     
     function tokenURI(uint256 tokenId) public view override returns (string memory) {

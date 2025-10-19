@@ -1,4 +1,15 @@
-
+node_modules/
+/.env
+/.env.local
+dist/
+.DS_Store
+/.parcel-cache
+/.vite
+coverage/
+artifacts/
+cache/
+build-info/
+*.secret
 # Hardhat files
 /cache
 /artifacts
