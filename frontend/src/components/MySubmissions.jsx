@@ -1,83 +1,129 @@
-import React, { useRef } from 'react';
-import { QRCodeCanvas as QRCode } from 'qrcode.react';
+import React, { useState, useEffect } from 'react';
+import { toast } from 'react-toastify';
+import { jsPDF } from 'jspdf';
+import { QRCodeCanvas } from 'qrcode.react';
+import { fetchFromIPFS } from '../utils/ipfs';
 
-const MySubmissions = ({ submissions, onDownload, onImport }) => {
-  const fileRef = useRef();
+const MySubmissions = ({ submissions, umkmContract }) => {
+  const [submissionsWithStatus, setSubmissionsWithStatus] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const handleExport = () => {
-    const blob = new Blob([JSON.stringify(submissions, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `umkm_submissions_${new Date().toISOString().slice(0,10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleFile = (e) => {
-    const f = e.target.files[0];
-    if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => {
+  useEffect(() => {
+    const fetchStatuses = async () => {
+      if (!umkmContract || submissions.length === 0) {
+        setIsLoading(false);
+        setSubmissionsWithStatus(submissions.map(s => ({ ...s, onChainData: null })));
+        return;
+      }
+      
+      setIsLoading(true);
       try {
-        const parsed = JSON.parse(reader.result);
-        if (typeof onImport === 'function') onImport(parsed);
-      } catch (err) {
-        alert('Invalid JSON file');
+        const promises = submissions.map(s => umkmContract.getAssetDataByHash(s.hash));
+        const onChainResults = await Promise.all(promises);
+        
+        const combinedData = submissions.map((s, index) => ({
+          ...s,
+          onChainData: onChainResults[index]
+        }));
+        
+        setSubmissionsWithStatus(combinedData);
+      } catch (error) {
+        console.error("Gagal mengambil status on-chain:", error);
+        toast.error("Gagal sinkronisasi data dengan blockchain.");
+      } finally {
+        setIsLoading(false);
       }
     };
-    reader.readAsText(f);
+
+    fetchStatuses();
+  }, [submissions, umkmContract]);
+
+  const handleDownloadCertificate = async (submission) => {
+    toast.info("Membuat sertifikat PDF...");
+    try {
+        // 1. Ambil detail data dari IPFS
+        const submissionPackage = await fetchFromIPFS(submission.ipfsCid);
+        const details = submissionPackage.data;
+
+        // 2. Ambil status on-chain terbaru
+        const onChainData = await umkmContract.getAssetDataByHash(submission.hash);
+        const statusText = onChainData.isVerified ? 'SAH / Terverifikasi' : 'TIDAK SAH / Menunggu Verifikasi';
+
+        // 3. Buat PDF
+        const doc = new jsPDF();
+        
+        // Header
+        doc.setFontSize(22);
+        doc.setFont('helvetica', 'bold');
+        doc.text("Sertifikat Digital UMKMChain", 105, 20, { align: 'center' });
+
+        // Konten
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Nama Usaha: ${details.namaUsaha}`, 20, 40);
+        doc.text(`Nomor Induk Berusaha (NIB): ${details.nib}`, 20, 50);
+        doc.text(`Nama Pemilik: ${details.namaLengkap}`, 20, 60);
+        doc.text(`Status Verifikasi: ${statusText}`, 20, 70);
+        doc.text(`Alasan/Catatan: ${onChainData.reason}`, 20, 80);
+        
+        // QR Code
+        const qrCanvas = document.getElementById(`qr-${submission.hash}`);
+        const qrDataURL = qrCanvas.toDataURL('image/png');
+        doc.addImage(qrDataURL, 'PNG', 75, 100, 60, 60);
+        
+        // Hash
+        doc.setFontSize(8);
+        doc.setFont('courier', 'normal');
+        doc.text("Hash Aset (On-Chain):", 105, 170, { align: 'center'});
+        doc.text(submission.hash, 105, 175, { align: 'center'});
+
+        // Simpan file
+        doc.save(`Sertifikat-UMKMChain-${details.nib}.pdf`);
+        toast.success("Sertifikat berhasil dibuat!");
+
+    } catch (error) {
+        console.error("Gagal membuat PDF:", error);
+        toast.error("Gagal membuat sertifikat PDF.");
+    }
   };
+
+  if (isLoading) {
+    return <div className="text-center p-5">Menyinkronkan data dengan blockchain...</div>;
+  }
+
   return (
     <div className="container mt-4">
-      <div className="d-flex justify-content-between align-items-center mb-3">
-        <h4 className="mb-0">My Submissions</h4>
-        <div>
-          <button className="btn btn-outline-secondary me-2" onClick={handleExport}>Export JSON</button>
-          <button className="btn btn-outline-primary me-2" onClick={() => fileRef.current.click()}>Import JSON</button>
-          <input ref={fileRef} type="file" accept="application/json" className="d-none" onChange={handleFile} />
-        </div>
-      </div>
-      {submissions.length === 0 ? (
-        <div className="alert alert-info">Belum ada pengajuan.</div>
+      <h4 className="mb-3 fw-bold">Pengajuan Saya</h4>
+      {submissionsWithStatus.length === 0 ? (
+        <div className="alert alert-info">Anda belum memiliki pengajuan.</div>
       ) : (
-        <div className="row g-3">
-          {submissions.map((s) => {
-            // try to get decision reason from the submission itself, else fallback to audit_log
-            let displayReason = s.decisionReason;
-            if (!displayReason) {
-              try {
-                const raw = localStorage.getItem('audit_log') || '[]';
-                const arr = JSON.parse(raw);
-                const found = arr.find(a => a.action === 'REJECT' && a.hash === s.hash);
-                if (found && found.reason) displayReason = found.reason;
-              } catch (e) { /* ignore */ }
-            }
-
+        <div className="row g-4">
+          {submissionsWithStatus.map((s) => {
+            const status = s.onChainData?.isVerified ? 'SAH' : 'PENDING';
+            const reason = s.onChainData?.reason || 'Menunggu verifikasi';
             return (
-              <div key={s.hash} className="col-md-4">
-                <div className="card h-100">
-                  <div className="card-body text-center">
-                    <h6 className="fw-bold">{s.namaUsaha}</h6>
-                    <p className="small text-muted">{s.nomorIzin}</p>
-                    <div className="mb-2">
-                      <span className={`badge ${s.status === 'APPROVED' ? 'bg-success' : s.status === 'REJECTED' ? 'bg-danger' : 'bg-secondary'}`}>{s.status || 'PENDING'}</span>
-                      {s.status === 'REJECTED' && displayReason ? (
-                        <div className="small text-danger mt-1">Alasan: {displayReason}</div>
-                      ) : s.status === 'REJECTED' ? (
-                        <div className="small text-muted mt-1">Alasan: -</div>
-                      ) : null}
-                    </div>
-                    <div className="small text-muted mb-1">Hash: {s.hash}</div>
-                    <div className="small text-muted mb-2">{s.createdAt ? new Date(s.createdAt).toLocaleString() : ''}</div>
-                    <div className="mb-2">
-                      <QRCode value={JSON.stringify({hash: s.hash})} size={120} />
-                    </div>
-                    <div className="small text-muted mb-2">Files: {s.files ? s.files.map(f => f.name).join(', ') : '—'}</div>
-                    <div className="d-grid gap-2">
-                      <button className="btn btn-outline-primary" onClick={() => onDownload(s)}>Download File</button>
+              <div key={s.hash} className="col-md-6 col-lg-4">
+                <div className="card h-100 shadow-sm">
+                  <div className="card-body">
+                    <h5 className="card-title">{s.assetType}</h5>
+                     <span className={`badge ${status === 'SAH' ? 'bg-success' : 'bg-warning text-dark'}`}>{status}</span>
+                     <p className="small text-muted mt-2">Alasan: {reason}</p>
+                    <hr/>
+                    <p className="card-text small font-monospace text-break">
+                      <strong>Hash:</strong> {s.hash}
+                    </p>
+                    {/* Hidden QR Code for PDF generation */}
+                    <div style={{ display: 'none' }}>
+                       <QRCodeCanvas id={`qr-${s.hash}`} value={s.hash} size={256} />
                     </div>
                   </div>
+                   <div className="card-footer bg-white border-0">
+                      <div className="d-grid">
+                        <button className="btn btn-primary" onClick={() => handleDownloadCertificate(s)}>
+                          Download Sertifikat (PDF)
+                        </button>
+                      </div>
+                    </div>
                 </div>
               </div>
             );

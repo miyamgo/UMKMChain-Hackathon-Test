@@ -1,163 +1,147 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { toast } from 'react-toastify';
 
-const Dashboard = () => {
-  const [stats] = useState({
-    totalAssets: 12,
-    verified: 8,
-    pending: 3,
-    revoked: 1
+const Dashboard = ({ submissions, umkmContract }) => {
+  const [stats, setStats] = useState({
+    total: 0,
+    verified: 0,
+    pending: 0,
+    revoked: 0, // Dihitung sebagai pending/tidak sah
   });
 
-  const pieData = [
-    { name: 'Verified', value: stats.verified, color: '#28a745' },
-    { name: 'Pending', value: stats.pending, color: '#ffc107' },
-    { name: 'Revoked', value: stats.revoked, color: '#dc3545' }
-  ];
+  const [chartData, setChartData] = useState({
+    weekly: [],
+    monthly: [],
+  });
 
-  const barData = [
-    { name: 'Total', count: stats.totalAssets },
-    { name: 'Verified', count: stats.verified },
-    { name: 'Pending', count: stats.pending },
-    { name: 'Revoked', count: stats.revoked }
-  ];
+  useEffect(() => {
+    const processData = async () => {
+      if (!umkmContract || submissions.length === 0) {
+        // Hitung statistik dasar jika tidak ada koneksi contract
+        setStats({ total: submissions.length, verified: 0, pending: submissions.length, revoked: 0 });
+        return;
+      }
+      
+      try {
+        // Ambil status on-chain untuk semua submission
+        const promises = submissions.map(s => umkmContract.getAssetDataByHash(s.hash));
+        const onChainResults = await Promise.all(promises);
+
+        let verifiedCount = 0;
+        let pendingCount = 0;
+
+        onChainResults.forEach(result => {
+          if (result.owner !== '0x0000000000000000000000000000000000000000') { // Pastikan hash terdaftar
+             if (result.isVerified) {
+              verifiedCount++;
+            } else {
+              pendingCount++;
+            }
+          }
+        });
+
+        setStats({
+          total: submissions.length,
+          verified: verifiedCount,
+          pending: pendingCount,
+          revoked: pendingCount, // Untuk sederhana, kita gabung
+        });
+
+        // Proses data untuk grafik
+        const now = new Date();
+        const weeklyData = Array(7).fill(0).map((_, i) => {
+            const d = new Date(now);
+            d.setDate(now.getDate() - i);
+            return { name: d.toLocaleDateString('id-ID', { weekday: 'short' }), users: 0 };
+        }).reverse();
+
+        const monthlyData = Array(12).fill(0).map((_, i) => {
+            return { name: new Date(0, i).toLocaleString('id-ID', { month: 'short' }), users: 0 };
+        });
+
+        submissions.forEach(s => {
+            const subDate = new Date(s.createdAt);
+            // Data Mingguan
+            const diffDays = Math.floor((now - subDate) / (1000 * 60 * 60 * 24));
+            if (diffDays < 7) {
+                const dayIndex = 6 - diffDays;
+                weeklyData[dayIndex].users++;
+            }
+            // Data Bulanan
+            if (subDate.getFullYear() === now.getFullYear()) {
+                const monthIndex = subDate.getMonth();
+                monthlyData[monthIndex].users++;
+            }
+        });
+
+        setChartData({ weekly: weeklyData, monthly: monthlyData });
+
+      } catch (error) {
+        console.error("Gagal memproses data dashboard:", error);
+        toast.error("Gagal menyinkronkan data dashboard.");
+      }
+    };
+
+    processData();
+  }, [submissions, umkmContract]);
+
+
+  const StatCard = ({ title, value, color }) => (
+    <div className="col-md-3">
+      <div className={`card border-0 shadow-sm text-white bg-${color}`}>
+        <div className="card-body">
+          <h5 className="card-title">{title}</h5>
+          <p className="card-text fs-2 fw-bold">{value}</p>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="container-fluid">
       <h2 className="mb-4 fw-bold">📊 Dashboard Analytics</h2>
       
-      {/* Stats Cards */}
       <div className="row g-4 mb-4">
-        <div className="col-md-3">
-          <div className="card border-0 shadow-lg bg-primary text-white">
-            <div className="card-body">
-              <h6 className="card-subtitle mb-2 opacity-75">Total Assets</h6>
-              <h2 className="card-title fw-bold mb-0">{stats.totalAssets}</h2>
-              <small>📦 Registered</small>
-            </div>
-          </div>
-        </div>
-        
-        <div className="col-md-3">
-          <div className="card border-0 shadow-lg bg-success text-white">
-            <div className="card-body">
-              <h6 className="card-subtitle mb-2 opacity-75">Verified</h6>
-              <h2 className="card-title fw-bold mb-0">{stats.verified}</h2>
-              <small>✅ SAH</small>
-            </div>
-          </div>
-        </div>
-        
-        <div className="col-md-3">
-          <div className="card border-0 shadow-lg bg-warning text-dark">
-            <div className="card-body">
-              <h6 className="card-subtitle mb-2">Pending</h6>
-              <h2 className="card-title fw-bold mb-0">{stats.pending}</h2>
-              <small>⏳ Waiting</small>
-            </div>
-          </div>
-        </div>
-        
-        <div className="col-md-3">
-          <div className="card border-0 shadow-lg bg-danger text-white">
-            <div className="card-body">
-              <h6 className="card-subtitle mb-2 opacity-75">Revoked</h6>
-              <h2 className="card-title fw-bold mb-0">{stats.revoked}</h2>
-              <small>❌ Dicabut</small>
-            </div>
-          </div>
-        </div>
+        <StatCard title="Total Aset Terdaftar" value={stats.total} color="primary" />
+        <StatCard title="Aset Terverifikasi (SAH)" value={stats.verified} color="success" />
+        <StatCard title="Menunggu / Dicabut" value={stats.pending} color="warning" />
+        <StatCard title="Placeholder" value={0} color="secondary" />
       </div>
 
-      {/* Charts */}
-      <div className="row g-4 mb-4">
-        <div className="col-md-6">
-          <div className="card border-0 shadow">
-            <div className="card-header bg-white">
-              <h5 className="mb-0">📊 Status Distribution</h5>
-            </div>
+      <div className="row g-4">
+        <div className="col-lg-6">
+          <div className="card shadow-sm">
             <div className="card-body">
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, value }) => `${name}: ${value}`}
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {pieData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-
-        <div className="col-md-6">
-          <div className="card border-0 shadow">
-            <div className="card-header bg-white">
-              <h5 className="mb-0">📈 Asset Statistics</h5>
-            </div>
-            <div className="card-body">
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={barData}>
+              <h5 className="card-title">Pendaftaran Baru (Mingguan)</h5>
+               <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={chartData.weekly}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="name" />
                   <YAxis />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="count" fill="#0d6efd" />
+                  <Bar dataKey="users" fill="#8884d8" name="Pengguna Baru"/>
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Recent Activities */}
-      <div className="card border-0 shadow">
-        <div className="card-header bg-white">
-          <h5 className="mb-0">🕐 Recent Activities</h5>
-        </div>
-        <div className="card-body">
-          <div className="table-responsive">
-            <table className="table table-hover">
-              <thead>
-                <tr>
-                  <th>Action</th>
-                  <th>Token ID</th>
-                  <th>Address</th>
-                  <th>Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><span className="badge bg-primary">Asset Registered</span></td>
-                  <td>#12</td>
-                  <td className="small">0xb5706...91c25</td>
-                  <td className="small">2 mins ago</td>
-                </tr>
-                <tr>
-                  <td><span className="badge bg-success">Verified</span></td>
-                  <td>#11</td>
-                  <td className="small">0xa1234...56789</td>
-                  <td className="small">15 mins ago</td>
-                </tr>
-                <tr>
-                  <td><span className="badge bg-primary">Asset Registered</span></td>
-                  <td>#10</td>
-                  <td className="small">0xc9876...12345</td>
-                  <td className="small">1 hour ago</td>
-                </tr>
-              </tbody>
-            </table>
+        <div className="col-lg-6">
+           <div className="card shadow-sm">
+            <div className="card-body">
+              <h5 className="card-title">Pendaftaran Baru (Bulanan)</h5>
+               <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={chartData.monthly}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="users" fill="#82ca9d" name="Pengguna Baru"/>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
       </div>
@@ -166,3 +150,4 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
+

@@ -16,6 +16,7 @@ contract UMKMRegistry is ERC721, AccessControl {
         string assetType;
         bool isVerified;
         string reason;
+        string ipfsCid; 
     }
 
     mapping(bytes32 => uint256) private hashToTokenId;
@@ -38,50 +39,51 @@ contract UMKMRegistry is ERC721, AccessControl {
         return super.supportsInterface(interfaceId);
     }
     
-    function registerAsset(bytes32 _assetHash, string memory _assetType) public {
-        require(_assetHash != bytes32(0), "Hash cannot be zero.");
-        require(hashToTokenId[_assetHash] == 0, "Asset already registered.");
+    function registerAsset(
+        bytes32 _assetHash,
+        string memory _assetType,
+        string memory _ipfsCid
+    ) public {
+        require(hashToTokenId[_assetHash] == 0, "Asset with this hash already exists");
 
         _nextTokenId++;
-        uint256 currentTokenId = _nextTokenId;
+        uint256 newItemId = _nextTokenId;
+        _safeMint(msg.sender, newItemId);
 
-        tokenData[currentTokenId] = AssetData({
+        hashToTokenId[_assetHash] = newItemId;
+        tokenData[newItemId] = AssetData({
             owner: msg.sender,
             timestamp: block.timestamp,
             assetType: _assetType,
             isVerified: false,
-            reason: "Menunggu Verifikasi Regulator"
+            reason: "Menunggu Verifikasi",
+            ipfsCid: _ipfsCid
         });
-
-        hashToTokenId[_assetHash] = currentTokenId;
-        _safeMint(msg.sender, currentTokenId);
     }
 
-    function setVerifiedStatus(uint256 _tokenId, string memory _reason) public onlyRole(REGULATOR_ROLE) {
-        ownerOf(_tokenId); 
-        
+    function setVerifiedStatus(uint256 _tokenId, string memory _reason) public {
+        require(hasRole(REGULATOR_ROLE, msg.sender), "Caller is not a regulator");
         tokenData[_tokenId].isVerified = true;
         tokenData[_tokenId].reason = _reason;
     }
 
-    function revokeAsset(uint256 _tokenId, string memory _reason) public onlyRole(REGULATOR_ROLE) {
-        ownerOf(_tokenId); 
-        
-        tokenData[_tokenId].isVerified = false;
-        tokenData[_tokenId].reason = _reason;
+    // [FITUR BARU] Fungsi untuk mencabut aset
+    function revokeAsset(uint256 _tokenId, string memory _reason) public {
+        require(hasRole(REGULATOR_ROLE, msg.sender), "Caller is not a regulator");
+        tokenData[_tokenId].isVerified = false; // Menandai sebagai tidak terverifikasi/dicabut
+        tokenData[_tokenId].reason = _reason; // Menyimpan alasan pencabutan
     }
     
     function getAssetDataByHash(bytes32 _assetHash) public view returns (AssetData memory) {
         uint256 tokenId = hashToTokenId[_assetHash];
         
         if (tokenId == 0) {
-            return AssetData(address(0), 0, "", false, "Hash Tidak Terdaftar/Dimodifikasi"); 
+            return AssetData(address(0), 0, "", false, "Hash Tidak Terdaftar/Dimodifikasi", ""); 
         }
         
         return tokenData[tokenId];
     }
-
-    // Return the tokenId mapped to a given asset hash (0 if not found)
+    
     function getTokenIdByHash(bytes32 _assetHash) public view returns (uint256) {
         return hashToTokenId[_assetHash];
     }
@@ -93,15 +95,61 @@ contract UMKMRegistry is ERC721, AccessControl {
         
         string memory json = string(
             abi.encodePacked(
-                '{"name": "', data.assetType, ' Certificate #', tokenId.toString(), '", ',
-                '"description": "Status Legalitas: ', data.reason, '", ',
-                '"attributes": [',
-                '{"trait_type": "Verified", "value": "', data.isVerified ? 'SAH' : 'DICABUT/MENUNGGU', '"},',
-                '{"trait_type": "Registered Owner", "value": "', Strings.toHexString(uint160(data.owner), 20), '"}',
-                ']}'
+                '{\"name\": \"', data.assetType, ' Certificate #', tokenId.toString(), '\", ',
+                '\"description\": \"Status Legalitas: ', data.reason, '\", ',
+                '\"attributes\": [',
+                '{\"trait_type\": \"Verified\", \"value\": \"', data.isVerified ? 'SAH' : 'DICABUT/MENUNGGU', '\"},',
+                '{\"trait_type\": \"Registered Owner\", \"value\": \"', Strings.toHexString(uint160(data.owner), 20), '\"}',
+                '],',
+                '\"external_url\": \"https://gateway.pinata.cloud/ipfs/', data.ipfsCid, '\"',
+                '}'
             )
         );
         
-        return string(abi.encodePacked("data:application/json;utf8,", json));
+        return string(abi.encodePacked("data:application/json;base64,", _toBase64(bytes(json))));
+    }
+
+    function _toBase64(bytes memory data) internal pure returns (string memory) {
+        bytes memory base64_bytes = new bytes(4 * ((data.length + 2) / 3));
+        string memory table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        uint256 j = 0;
+        uint256 len = data.length;
+        uint256 i = 0;
+        while(i < len){
+            uint256 val = 0;
+            uint8 b1 = uint8(data[i]);
+            i++;
+            val = uint256(b1) << 16;
+            if(i < len){
+                uint8 b2 = uint8(data[i]);
+                i++;
+                val |= (uint256(b2) << 8);
+            }
+            if(i < len){
+                 uint8 b3 = uint8(data[i]);
+                 i++;
+                 val |= uint256(b3);
+            }
+            base64_bytes[j] = bytes(table)[(val >> 18) & 0x3F];
+            j++;
+            base64_bytes[j] = bytes(table)[(val >> 12) & 0x3F];
+            j++;
+            if (i > len - 2) {
+                base64_bytes[j] = bytes(table)[(val >> 6) & 0x3F];
+                j++;
+            } else {
+                base64_bytes[j] = '=';
+                j++;
+            }
+            if (i > len - 1) {
+                base64_bytes[j] = bytes(table)[val & 0x3F];
+                j++;
+            } else {
+                 base64_bytes[j] = '=';
+                 j++;
+            }
+        }
+        return string(base64_bytes);
     }
 }
+

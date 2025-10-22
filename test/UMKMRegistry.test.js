@@ -5,6 +5,7 @@ describe("UMKMRegistry Contract", function () {
   let umkmRegistry;
   let owner, regulator, umkm1, umkm2;
   
+  // Deploy kontrak baru sebelum setiap tes
   beforeEach(async function () {
     [owner, regulator, umkm1, umkm2] = await ethers.getSigners();
     
@@ -30,32 +31,44 @@ describe("UMKMRegistry Contract", function () {
   describe("Pendaftaran Aset", function () {
     it("UMKM bisa mendaftarkan aset", async function () {
       const assetHash = ethers.keccak256(ethers.toUtf8Bytes("NIB123456"));
+      const ipfsCid = "Qm...testCid"; // Contoh CID
       
-      await umkmRegistry.connect(umkm1).registerAsset(assetHash, "NIB");
-      
+      // [PERBAIKAN] Memanggil registerAsset dengan 3 argumen
+      await expect(umkmRegistry.connect(umkm1).registerAsset(assetHash, "NIB", ipfsCid))
+        .to.emit(umkmRegistry, 'Transfer') // Memastikan NFT di-mint
+        .withArgs(ethers.ZeroAddress, umkm1.address, 1); // TokenId 1
+
       const assetData = await umkmRegistry.getAssetDataByHash(assetHash);
       expect(assetData.owner).to.equal(umkm1.address);
-      expect(assetData.assetType).to.equal("NIB");
-      expect(assetData.isVerified).to.be.false;
+      expect(assetData.ipfsCid).to.equal(ipfsCid);
     });
 
     it("Tidak bisa mendaftar hash yang sama dua kali", async function () {
       const assetHash = ethers.keccak256(ethers.toUtf8Bytes("NIB123456"));
+      const ipfsCid = "Qm...testCid";
+
+      // Pendaftaran pertama
+      await umkmRegistry.connect(umkm1).registerAsset(assetHash, "NIB", ipfsCid);
       
-      await umkmRegistry.connect(umkm1).registerAsset(assetHash, "NIB");
-      
+      // Pendaftaran kedua (harus gagal)
       await expect(
-        umkmRegistry.connect(umkm2).registerAsset(assetHash, "NIB")
-      ).to.be.revertedWith("Asset already registered.");
+        umkmRegistry.connect(umkm2).registerAsset(assetHash, "NIB", ipfsCid)
+      ).to.be.revertedWith("Asset with this hash already exists");
     });
   });
 
   describe("Verifikasi oleh Regulator", function () {
+    let assetHash;
+    let tokenId;
+
+    beforeEach(async function() {
+        assetHash = ethers.keccak256(ethers.toUtf8Bytes("NIB_FOR_VERIFY"));
+        await umkmRegistry.connect(umkm1).registerAsset(assetHash, "NIB", "QmVerify");
+        tokenId = await umkmRegistry.getTokenIdByHash(assetHash);
+    });
+
     it("Regulator bisa memverifikasi aset menjadi SAH", async function () {
-      const assetHash = ethers.keccak256(ethers.toUtf8Bytes("NIB123456"));
-      await umkmRegistry.connect(umkm1).registerAsset(assetHash, "NIB");
-      
-      await umkmRegistry.connect(regulator).setVerifiedStatus(1, "SAH - Terverifikasi");
+      await umkmRegistry.connect(regulator).setVerifiedStatus(tokenId, "SAH - Terverifikasi");
       
       const assetData = await umkmRegistry.getAssetDataByHash(assetHash);
       expect(assetData.isVerified).to.be.true;
@@ -63,26 +76,30 @@ describe("UMKMRegistry Contract", function () {
     });
 
     it("Non-regulator tidak bisa memverifikasi aset", async function () {
-      const assetHash = ethers.keccak256(ethers.toUtf8Bytes("NIB123456"));
-      await umkmRegistry.connect(umkm1).registerAsset(assetHash, "NIB");
-      
       await expect(
-        umkmRegistry.connect(umkm2).setVerifiedStatus(1, "SAH")
-      ).to.be.reverted;
+        umkmRegistry.connect(umkm2).setVerifiedStatus(tokenId, "SAH")
+      ).to.be.reverted; // Reverted karena tidak punya role
     });
   });
 
   describe("Pencabutan oleh Regulator", function () {
+    let assetHash;
+    let tokenId;
+
+    beforeEach(async function() {
+        assetHash = ethers.keccak256(ethers.toUtf8Bytes("NIB_FOR_REVOKE"));
+        await umkmRegistry.connect(umkm1).registerAsset(assetHash, "NIB", "QmRevoke");
+        tokenId = await umkmRegistry.getTokenIdByHash(assetHash);
+        // Setujui dulu sebelum bisa dicabut
+        await umkmRegistry.connect(regulator).setVerifiedStatus(tokenId, "SAH");
+    });
+
     it("Regulator bisa mencabut aset", async function () {
-      const assetHash = ethers.keccak256(ethers.toUtf8Bytes("NIB123456"));
-      await umkmRegistry.connect(umkm1).registerAsset(assetHash, "NIB");
-      await umkmRegistry.connect(regulator).setVerifiedStatus(1, "SAH");
-      
-      await umkmRegistry.connect(regulator).revokeAsset(1, "Masa Berlaku Habis");
+      await umkmRegistry.connect(regulator).revokeAsset(tokenId, "Dicabut - Pelanggaran");
       
       const assetData = await umkmRegistry.getAssetDataByHash(assetHash);
       expect(assetData.isVerified).to.be.false;
-      expect(assetData.reason).to.equal("Masa Berlaku Habis");
+      expect(assetData.reason).to.equal("Dicabut - Pelanggaran");
     });
   });
 });

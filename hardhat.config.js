@@ -1,4 +1,5 @@
 require("@nomicfoundation/hardhat-toolbox");
+require("dotenv").config();
 
 module.exports = {
   solidity: {
@@ -7,7 +8,8 @@ module.exports = {
       optimizer: {
         enabled: true,
         runs: 200
-      }
+      },
+    viaIR: true, 
     }
   },
   paths: {
@@ -21,5 +23,9 @@ module.exports = {
       url: "https://eth-sepolia.g.alchemy.com/v2/lp4IXHZUYLSHRkXogpiUr",
       accounts: ["88c758fd080c8483069bbef9b5eaf9ffd5875877ee690e64e894b4203a2e5f81"] // JANGAN COMMIT KE GIT!
     }
+  },
+    etherscan: {
+    apiKey: "IAWVCBWAEIW1PUKAPMSG3DCADXWQS8JH31"
   }
 };
+
